@@ -994,10 +994,12 @@ class Embyservice(metaclass=Singleton):
             result = await self._request('POST', '/user_usage_stats/submit_custom_query', json=data)
             if result.success and result.data:
                 ret = result.data
-                if len(ret.get("columns", [])) == 0:
-                    return False, ret.get("message", "无数据")
+                columns = ret.get("columns", [])
+                if not columns:
+                    LOGGER.info(f"获取播放报告无数据: {types}, message: {ret.get('message')}")
+                    return True, ret.get("results", []) or []
                 LOGGER.debug(f"获取播放报告成功: {types}")
-                return True, ret.get("results", [])
+                return True, ret.get("results", []) or []
             else:
                 LOGGER.error(f"获取播放报告失败: {result.error}")
                 return False, f"🤕Emby 服务器连接失败: {result.error}"
