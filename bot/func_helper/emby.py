@@ -239,7 +239,6 @@ class Embyservice(metaclass=Singleton):
                 LOGGER.error("无法获取用户ID")
                 return False
             
-            # 2. 设置密码
             password = await pwd_create(8)
             pwd_data = pwd_policy(user_id, new=password)
             result = await self._request('POST', f'/Users/{user_id}/Password', json=pwd_data)
@@ -247,16 +246,22 @@ class Embyservice(metaclass=Singleton):
                 LOGGER.error(f"设置密码失败: {result.error}")
                 return False
             
-            # 3. 设置策略
-            policy = create_policy(False, False)
-            result = await self._request('POST', f'/Users/{user_id}/Policy', json=policy)
+            user_result = await self._request('GET', f'/Users/{user_id}')
+            if not user_result.success:
+                LOGGER.error(f"获取用户策略失败: {user_id} - {user_result.error}")
+                return False
+            
+            current_policy = user_result.data.get('Policy', {}) or {}
+            policy_update = create_policy(False, False)
+            updated_policy = current_policy.copy()
+            updated_policy.update(policy_update)
+            
+            result = await self._request('POST', f'/Users/{user_id}/Policy', json=updated_policy)
             if not result.success:
                 LOGGER.error(f"设置策略失败: {result.error}")
                 return False
             
-            # 4. 隐藏 emby_block 和 extra_emby_libs 媒体库
             try:
-                # 使用封装的隐藏方法
                 block_libs = emby_block + extra_emby_libs
                 result = await self.hide_folders_by_names(user_id, block_libs)
                 if not result:
@@ -347,13 +352,23 @@ class Embyservice(metaclass=Singleton):
         try:
             if block is None:
                 block = emby_block
-                
+            
+            user_result = await self._request('GET', f'/Users/{emby_id}')
+            if not user_result.success:
+                LOGGER.error(f"获取用户策略失败: {emby_id} - {user_result.error}")
+                return False
+            
+            current_policy = user_result.data.get('Policy', {}) or {}
+            
             if stats == 0:
-                policy = create_policy(False, False, block=block)
+                policy_update = create_policy(False, False, block=block)
             else:
-                policy = create_policy(False, False)
-                
-            result = await self._request('POST', f'/Users/{emby_id}/Policy', json=policy)
+                policy_update = create_policy(False, False)
+            
+            updated_policy = current_policy.copy()
+            updated_policy.update(policy_update)
+            
+            result = await self._request('POST', f'/Users/{emby_id}/Policy', json=updated_policy)
             if result.success:
                 LOGGER.info(f"成功设置用户权限: {emby_id}")
                 return True
@@ -634,8 +649,17 @@ class Embyservice(metaclass=Singleton):
         :return: 是否成功
         """
         try:
-            policy = create_policy(admin=admin, disable=disable)
-            result = await self._request('POST', f'/Users/{emby_id}/Policy', json=policy)
+            user_result = await self._request('GET', f'/Users/{emby_id}')
+            if not user_result.success:
+                LOGGER.error(f"获取用户策略失败: {emby_id} - {user_result.error}")
+                return False
+            
+            current_policy = user_result.data.get('Policy', {}) or {}
+            policy_update = create_policy(admin=admin, disable=disable)
+            updated_policy = current_policy.copy()
+            updated_policy.update(policy_update)
+            
+            result = await self._request('POST', f'/Users/{emby_id}/Policy', json=updated_policy)
             if result.success:
                 LOGGER.info(f"成功修改用户策略: {emby_id}")
                 return True
