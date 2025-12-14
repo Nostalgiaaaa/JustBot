@@ -47,9 +47,7 @@ def create_policy(admin=False, disable=False, limit: int = 2, block: list = None
         "EnableSyncTranscoding": False,
         "EnableMediaConversion": False,
         "EnableAllDevices": True,
-        "MaxActiveSessions": limit,
-        "BlockedMediaFolders": block,
-        "AllowCameraUpload": False
+        "MaxActiveSessions": limit
     }
     return policy
 
