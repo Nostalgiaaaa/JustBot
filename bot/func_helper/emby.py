@@ -713,9 +713,9 @@ class Embyservice(metaclass=Singleton):
             # 注意：由于Emby API的限制，这里仍然需要拼接SQL
             # 在实际生产环境中，建议在Emby服务器端实现参数化查询
             if method == 'sp':
-                final_sql = f"SELECT UserId, SUM(PlayDuration - PauseDuration) AS WatchTime FROM PlaybackActivity WHERE DateCreated >= '{start_time}' AND DateCreated < '{end_time}' GROUP BY UserId ORDER BY WatchTime DESC"
+                final_sql = f"SELECT UserId, SUM(PlayDuration) AS WatchTime FROM PlaybackActivity WHERE DateCreated >= '{start_time}' AND DateCreated < '{end_time}' GROUP BY UserId ORDER BY WatchTime DESC"
             else:
-                final_sql = f"SELECT MAX(DateCreated) AS LastLogin, SUM(PlayDuration - PauseDuration) / 60 AS WatchTime FROM PlaybackActivity WHERE UserId = '{emby_id}' AND DateCreated >= '{start_time}' AND DateCreated < '{end_time}' GROUP BY UserId"
+                final_sql = f"SELECT MAX(DateCreated) AS LastLogin, SUM(PlayDuration) / 60 AS WatchTime FROM PlaybackActivity WHERE UserId = '{emby_id}' AND DateCreated >= '{start_time}' AND DateCreated < '{end_time}' GROUP BY UserId"
             
             data = {
                 "CustomQueryString": final_sql,
@@ -965,11 +965,11 @@ class Embyservice(metaclass=Singleton):
                 "SELECT UserId, ItemId, ItemType,",
                 " substr(ItemName,0, instr(ItemName, ' - ')) AS name," if types == 'Episode' else "ItemName AS name,",
                 "COUNT(1) AS play_count,",
-                "SUM(PlayDuration - PauseDuration) AS total_duarion",
+                "SUM(PlayDuration) AS total_duarion",
                 "FROM PlaybackActivity",
                 f"WHERE ItemType = '{types}'",  # 这里应该验证types参数
                 f"AND DateCreated >= '{start_time}' AND DateCreated <= '{end_time}'",
-                "AND UserId not IN (select UserId from UserList)"
+                ""
             ]
             
             if emby_id:
@@ -994,7 +994,7 @@ class Embyservice(metaclass=Singleton):
             result = await self._request('POST', '/user_usage_stats/submit_custom_query', json=data)
             if result.success and result.data:
                 ret = result.data
-                if len(ret.get("colums", [])) == 0:
+                if len(ret.get("columns", [])) == 0:
                     return False, ret.get("message", "无数据")
                 LOGGER.debug(f"获取播放报告成功: {types}")
                 return True, ret.get("results", [])
@@ -1027,7 +1027,7 @@ class Embyservice(metaclass=Singleton):
             result = await self._request('POST', '/user_usage_stats/submit_custom_query', json=data)
             if result.success and result.data:
                 ret = result.data
-                if len(ret.get("colums", [])) == 0:
+                if len(ret.get("columns", [])) == 0:
                     return False, ret.get("message", "无数据")
                 LOGGER.debug(f"获取用户设备信息成功: {emby_id}")
                 return True, ret.get("results", [])
@@ -1085,7 +1085,7 @@ class Embyservice(metaclass=Singleton):
             result = await self._request('POST', '/user_usage_stats/submit_custom_query', json=data)
             if result.success and result.data:
                 ret = result.data
-                if len(ret.get("colums", [])) == 0:
+                if len(ret.get("columns", [])) == 0:
                     return False, ret.get("message", "无数据")
                 
                 # 获取查询结果
@@ -1167,7 +1167,7 @@ class Embyservice(metaclass=Singleton):
             result = await self._request('POST', '/user_usage_stats/submit_custom_query', json=data)
             if result.success and result.data:
                 ret = result.data
-                if len(ret.get("colums", [])) == 0:
+                if len(ret.get("columns", [])) == 0:
                     return False, ret.get("message", "无数据")
                 
                 # 获取查询结果
@@ -1249,7 +1249,7 @@ class Embyservice(metaclass=Singleton):
             result = await self._request('POST', '/user_usage_stats/submit_custom_query', json=data)
             if result.success and result.data:
                 ret = result.data
-                if len(ret.get("colums", [])) == 0:
+                if len(ret.get("columns", [])) == 0:
                     return False, ret.get("message", "无数据")
                 
                 # 获取查询结果
@@ -1314,7 +1314,7 @@ class Embyservice(metaclass=Singleton):
             result = await self._request('POST', '/user_usage_stats/submit_custom_query', json=data)
             if result.success and result.data:
                 ret = result.data
-                if len(ret.get("colums", [])) == 0:
+                if len(ret.get("columns", [])) == 0:
                     return False, [], False, False
                 
                 results = ret.get("results", [])
