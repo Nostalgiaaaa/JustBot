@@ -763,7 +763,7 @@ async def my_devices(_, call):
         return await callAnswer(call, '您还没有Emby账户', True)
     success, result = await emby.get_emby_userip(emby_id=get_emby.embyid)
     if not success or len(result) == 0:
-        return await callAnswer(call, '您好像没播放信息吖')
+        return await callAnswer(call, '设备相关问题请咨询管理')
     else:
         await callAnswer(call, '🔍 正在获取您的设备信息')
         device_count = 0
