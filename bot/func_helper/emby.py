@@ -403,13 +403,19 @@ class Embyservice(metaclass=Singleton):
         :return: 媒体库ID列表
         """
         try:
+            target_names = [name.strip() for name in folder_names if name and name.strip()]
+            if not target_names:
+                LOGGER.warning(f"获取文件夹ID时收到空的媒体库名称列表: {folder_names}")
+                return []
             result = await self._request('GET', '/Library/VirtualFolders')
             if result.success and result.data:
                 folder_ids = []
                 for lib in result.data:
-                    if lib.get('Name') in folder_names:
-                        if lib.get('Guid') is not None:
-                            folder_ids.append(lib.get('Guid'))
+                    name = lib.get('Name')
+                    if name in target_names:
+                        folder_id = lib.get('Guid') or lib.get('ItemId') or lib.get('Id')
+                        if folder_id is not None:
+                            folder_ids.append(folder_id)
                 LOGGER.debug(f"获取文件夹ID成功: {folder_names} -> {folder_ids}")
                 return folder_ids
             else:
