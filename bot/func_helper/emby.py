@@ -1402,9 +1402,6 @@ class Embyservice(metaclass=Singleton):
 
             LOGGER.debug(f"通过 Sessions 获取用户设备统计成功: offset={offset}, limit={limit}, total={total}")
             return True, page_rows, has_prev, has_next
-            else:
-                LOGGER.error(f"获取用户设备统计失败: {result.error}")
-                return False, [], False, False
                 
         except Exception as e:
             LOGGER.error(f"获取用户设备统计异常: {str(e)}")
