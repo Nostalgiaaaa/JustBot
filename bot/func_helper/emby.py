@@ -1016,32 +1016,54 @@ class Embyservice(metaclass=Singleton):
 
     async def get_emby_userip(self, emby_id: str) -> Tuple[bool, Union[List[Dict], str]]:
         """
-        获取用户IP和设备信息（已修复SQL注入问题）
+        获取用户IP和设备信息（兼容 Jellyfin，无 user_usage_stats 插件时回退 Sessions）
         :param emby_id: 用户ID
         :return: (是否成功, 设备信息或错误信息)
         """
         try:
-            # 验证user_id格式
-            if not emby_id.replace('-', '').replace('_', '').isalnum():
-                LOGGER.error(f"无效的用户ID格式: {emby_id}")
-                return False, "无效的用户ID格式"
-            
-            sql = f"SELECT DeviceName,ClientName, RemoteAddress FROM PlaybackActivity WHERE UserId = '{emby_id}'"
-            data = {
-                "CustomQueryString": sql,
-                "ReplaceUserId": True
-            }
-            
-            result = await self._request('POST', '/user_usage_stats/submit_custom_query', json=data)
-            if result.success and result.data:
-                ret = result.data
-                if len(ret.get("columns", [])) == 0:
-                    return False, ret.get("message", "无数据")
-                LOGGER.debug(f"获取用户设备信息成功: {emby_id}")
-                return True, ret.get("results", [])
-            else:
-                LOGGER.error(f"获取用户设备信息失败: {emby_id} - {result.error}")
-                return False, f"🤕Emby 服务器连接失败: {result.error}"
+            # 优先使用 Emby 的 user_usage_stats 插件接口
+            try:
+                if not emby_id.replace('-', '').replace('_', '').isalnum():
+                    raise ValueError(f"无效的用户ID格式: {emby_id}")
+                
+                sql = f"SELECT DeviceName,ClientName, RemoteAddress FROM PlaybackActivity WHERE UserId = '{emby_id}'"
+                data = {
+                    "CustomQueryString": sql,
+                    "ReplaceUserId": True
+                }
+                
+                result = await self._request('POST', '/user_usage_stats/submit_custom_query', json=data)
+                if result.success and result.data:
+                    ret = result.data
+                    if len(ret.get("columns", [])) == 0:
+                        return False, ret.get("message", "无数据")
+                    LOGGER.debug(f"通过 user_usage_stats 获取用户设备信息成功: {emby_id}")
+                    return True, ret.get("results", [])
+                LOGGER.warning(f"user_usage_stats 查询用户设备信息失败，尝试使用 Sessions 回退: {emby_id} - {result.error}")
+            except Exception as inner_e:
+                LOGGER.info(f"user_usage_stats 插件不可用或查询失败，使用 Sessions 回退: {emby_id} - {str(inner_e)}")
+
+            # 回退方案：使用 Jellyfin / Emby 通用 Sessions 接口
+            sessions_result = await self._request('GET', '/Sessions')
+            if not sessions_result.success or not sessions_result.data:
+                LOGGER.error(f"通过 Sessions 获取用户设备信息失败: {sessions_result.error}")
+                return False, f"🤕Emby 服务器连接失败: {sessions_result.error}"
+
+            rows = []
+            for session in sessions_result.data:
+                if session.get("UserId") != emby_id:
+                    continue
+                device_name = session.get("DeviceName") or session.get("DeviceName", "未知设备")
+                client_name = session.get("Client") or session.get("ClientName") or "未知客户端"
+                remote_address = session.get("RemoteEndPoint") or session.get("RemoteAddress") or "未知IP"
+                rows.append([device_name, client_name, remote_address])
+
+            if not rows:
+                LOGGER.info(f"通过 Sessions 未找到用户设备信息: {emby_id}")
+                return False, "无数据"
+
+            LOGGER.debug(f"通过 Sessions 获取用户设备信息成功: {emby_id} -> {len(rows)} 条记录")
+            return True, rows
                 
         except Exception as e:
             LOGGER.error(f"获取用户设备信息异常: {emby_id} - {str(e)}")
@@ -1297,46 +1319,89 @@ class Embyservice(metaclass=Singleton):
 
     async def get_emby_user_devices(self, offset: int = 0, limit: int = 20) -> Tuple[bool, List[Dict], bool, bool]:
         """
-        获取用户设备统计，支持分页
+        获取用户设备统计，支持分页（兼容 Jellyfin，无 user_usage_stats 插件时回退 Sessions）
         :param offset: 偏移量
         :param limit: 每页数量
         :return: (是否成功, 设备数据, 是否有上一页, 是否有下一页)
         """
         try:
-            sql = f"""
-                SELECT UserId, 
-                       COUNT(DISTINCT DeviceName || '' || ClientName) AS device_count,
-                       COUNT(DISTINCT RemoteAddress) AS ip_count 
-                FROM PlaybackActivity 
-                GROUP BY UserId 
-                ORDER BY device_count DESC 
-                LIMIT {int(limit + 1)} 
-                OFFSET {int(offset)}
-            """
-            
-            data = {
-                "CustomQueryString": sql,
-                "ReplaceUserId": True
-            }
-            
-            result = await self._request('POST', '/user_usage_stats/submit_custom_query', json=data)
-            if result.success and result.data:
-                ret = result.data
-                if len(ret.get("columns", [])) == 0:
-                    return False, [], False, False
+            # 优先使用 Emby 的 user_usage_stats 插件（PlaybackActivity 表）
+            try:
+                sql = f"""
+                    SELECT UserId, 
+                           COUNT(DISTINCT DeviceName || '' || ClientName) AS device_count,
+                           COUNT(DISTINCT RemoteAddress) AS ip_count 
+                    FROM PlaybackActivity 
+                    GROUP BY UserId 
+                    ORDER BY device_count DESC 
+                    LIMIT {int(limit + 1)} 
+                    OFFSET {int(offset)}
+                """
                 
-                results = ret.get("results", [])
+                data = {
+                    "CustomQueryString": sql,
+                    "ReplaceUserId": True
+                }
                 
-                # 判断是否有下一页
-                has_next = len(results) > limit
-                if has_next:
-                    results = results[:-1]  # 去掉多查的一条
-                
-                # 判断是否有上一页
-                has_prev = offset > 0
-                
-                LOGGER.debug(f"获取用户设备统计成功: offset={offset}, limit={limit}")
-                return True, results, has_prev, has_next
+                result = await self._request('POST', '/user_usage_stats/submit_custom_query', json=data)
+                if result.success and result.data:
+                    ret = result.data
+                    if len(ret.get("columns", [])) == 0:
+                        return False, [], False, False
+                    
+                    results = ret.get("results", [])
+                    
+                    has_next = len(results) > limit
+                    if has_next:
+                        results = results[:-1]
+                    
+                    has_prev = offset > 0
+                    
+                    LOGGER.debug(f"通过 user_usage_stats 获取用户设备统计成功: offset={offset}, limit={limit}")
+                    return True, results, has_prev, has_next
+                LOGGER.warning(f"user_usage_stats 获取用户设备统计失败，尝试使用 Sessions 回退: {result.error}")
+            except Exception as inner_e:
+                LOGGER.info(f"user_usage_stats 插件不可用或查询失败，使用 Sessions 回退获取设备统计: {str(inner_e)}")
+
+            # 回退方案：使用 Sessions 统计当前/近期在线设备
+            sessions_result = await self._request('GET', '/Sessions')
+            if not sessions_result.success or not sessions_result.data:
+                LOGGER.error(f"通过 Sessions 获取用户设备统计失败: {sessions_result.error}")
+                return False, [], False, False
+
+            device_map = {}
+            for session in sessions_result.data:
+                user_id = session.get("UserId")
+                if not user_id:
+                    continue
+                device_name = session.get("DeviceName") or "未知设备"
+                client_name = session.get("Client") or session.get("ClientName") or "未知客户端"
+                remote_address = session.get("RemoteEndPoint") or session.get("RemoteAddress") or "未知IP"
+
+                key = user_id
+                user_info = device_map.setdefault(key, {"user_id": user_id, "devices": set(), "ips": set()})
+                user_info["devices"].add(device_name + client_name)
+                user_info["ips"].add(remote_address)
+
+            rows = []
+            for info in device_map.values():
+                rows.append([
+                    info["user_id"],
+                    len(info["devices"]),
+                    len(info["ips"])
+                ])
+
+            rows.sort(key=lambda x: x[1], reverse=True)
+
+            total = len(rows)
+            page_rows = rows[offset:offset + limit + 1]
+            has_next = len(page_rows) > limit
+            if has_next:
+                page_rows = page_rows[:limit]
+            has_prev = offset > 0
+
+            LOGGER.debug(f"通过 Sessions 获取用户设备统计成功: offset={offset}, limit={limit}, total={total}")
+            return True, page_rows, has_prev, has_next
             else:
                 LOGGER.error(f"获取用户设备统计失败: {result.error}")
                 return False, [], False, False
